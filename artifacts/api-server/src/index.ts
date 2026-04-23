@@ -23,69 +23,106 @@ const io = new SocketIOServer(httpServer, {
   cors: { origin: "*" },
 });
 
-interface ChatMessage {
+interface SosAlert {
   id: string;
-  user: string;
-  text: string;
+  room: string;
   timestamp: number;
+  status: "active" | "acknowledged" | "resolved";
+  acknowledgedBy?: string;
+  acknowledgedAt?: number;
+  resolvedAt?: number;
 }
 
-const recentMessages: ChatMessage[] = [];
-const MAX_HISTORY = 50;
-const onlineUsers = new Map<string, string>();
+const alerts: SosAlert[] = [];
+const MAX_ALERTS = 200;
+let staffCount = 0;
 
-function broadcastUserList() {
-  io.emit("users", Array.from(new Set(onlineUsers.values())));
+function publishStaffCount() {
+  io.to("staff").emit("staff:count", staffCount);
 }
 
 io.on("connection", (socket) => {
   logger.info({ socketId: socket.id }, "Socket connected");
 
-  socket.emit("history", recentMessages);
-
-  socket.on("join", (rawUser: unknown) => {
-    const user =
-      typeof rawUser === "string" && rawUser.trim().length > 0
-        ? rawUser.trim().slice(0, 32)
-        : `guest-${socket.id.slice(0, 4)}`;
-    onlineUsers.set(socket.id, user);
-    socket.data["user"] = user;
-    io.emit("system", `${user} joined the chat`);
-    broadcastUserList();
+  socket.on("staff:join", () => {
+    socket.join("staff");
+    staffCount += 1;
+    socket.emit("alerts:snapshot", alerts);
+    publishStaffCount();
+    logger.info({ socketId: socket.id, staffCount }, "Staff joined");
   });
 
-  socket.on("message", (rawText: unknown) => {
-    const text = typeof rawText === "string" ? rawText.trim() : "";
-    if (!text) return;
-    const user = (socket.data["user"] as string) ?? "anonymous";
-    const msg: ChatMessage = {
-      id: `${Date.now()}-${socket.id}`,
-      user,
-      text: text.slice(0, 500),
+  socket.on("guest:sos", (rawRoom: unknown) => {
+    const room =
+      typeof rawRoom === "string" && rawRoom.trim().length > 0
+        ? rawRoom.trim().slice(0, 16).toUpperCase()
+        : "UNKNOWN";
+
+    const alert: SosAlert = {
+      id: `${Date.now()}-${socket.id.slice(0, 6)}`,
+      room,
       timestamp: Date.now(),
+      status: "active",
     };
-    recentMessages.push(msg);
-    if (recentMessages.length > MAX_HISTORY) {
-      recentMessages.shift();
-    }
-    io.emit("message", msg);
+    alerts.unshift(alert);
+    if (alerts.length > MAX_ALERTS) alerts.pop();
+
+    io.to("staff").emit("alert:new", alert);
+    socket.emit("guest:sos:received", alert);
+    logger.warn({ alert }, "EMERGENCY SOS triggered");
   });
 
-  socket.on("typing", (isTyping: unknown) => {
-    const user = socket.data["user"] as string | undefined;
-    if (!user) return;
-    socket.broadcast.emit("typing", { user, isTyping: Boolean(isTyping) });
+  socket.on(
+    "alert:acknowledge",
+    (payload: { id?: unknown; by?: unknown } | undefined) => {
+      const id = typeof payload?.id === "string" ? payload.id : null;
+      const by =
+        typeof payload?.by === "string" && payload.by.trim().length > 0
+          ? payload.by.trim().slice(0, 32)
+          : "Staff";
+      if (!id) return;
+      const alert = alerts.find((a) => a.id === id);
+      if (!alert || alert.status !== "active") return;
+      alert.status = "acknowledged";
+      alert.acknowledgedBy = by;
+      alert.acknowledgedAt = Date.now();
+      io.to("staff").emit("alert:update", alert);
+    },
+  );
+
+  socket.on("alert:resolve", (payload: { id?: unknown } | undefined) => {
+    const id = typeof payload?.id === "string" ? payload.id : null;
+    if (!id) return;
+    const alert = alerts.find((a) => a.id === id);
+    if (!alert || alert.status === "resolved") return;
+    alert.status = "resolved";
+    alert.resolvedAt = Date.now();
+    io.to("staff").emit("alert:update", alert);
   });
 
   socket.on("disconnect", () => {
-    const user = onlineUsers.get(socket.id);
-    onlineUsers.delete(socket.id);
-    if (user) {
-      io.emit("system", `${user} left the chat`);
+    if (socket.rooms.has("staff") || socket.data["isStaff"]) {
+      // no-op; rooms already left
     }
-    broadcastUserList();
+    // Decrement only if this socket was in staff room
+    // socket.io has already removed it from rooms by now, so track via flag
+    if ((socket as unknown as { _wasStaff?: boolean })._wasStaff) {
+      staffCount = Math.max(0, staffCount - 1);
+      publishStaffCount();
+    }
     logger.info({ socketId: socket.id }, "Socket disconnected");
   });
+
+  // Track staff membership for accurate disconnect counting
+  const origJoin = socket.join.bind(socket);
+  socket.join = ((room: string | string[]) => {
+    const result = origJoin(room as string);
+    const rooms = Array.isArray(room) ? room : [room];
+    if (rooms.includes("staff")) {
+      (socket as unknown as { _wasStaff?: boolean })._wasStaff = true;
+    }
+    return result;
+  }) as typeof socket.join;
 });
 
 httpServer.listen(port, (err) => {

@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Crisis Response — Staff Dashboard</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0a0d12;
+        --panel: #11151c;
+        --panel-2: #161b24;
+        --border: #232a36;
+        --text: #e6e8ec;
+        --muted: #8a93a3;
+        --red: #ef2b3a;
+        --red-deep: #b3131e;
+        --red-glow: rgba(239, 43, 58, 0.45);
+        --green: #22c55e;
+        --amber: #f59e0b;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 22px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.3);
+        position: sticky; top: 0; z-index: 5;
+      }
+      .brand {
+        display: flex; align-items: center; gap: 10px;
+        font-weight: 700; letter-spacing: 0.04em;
+        text-transform: uppercase; font-size: 13px;
+      }
+      .brand .pulse {
+        width: 10px; height: 10px; border-radius: 50%;
+        background: var(--red);
+        box-shadow: 0 0 0 0 var(--red-glow);
+        animation: pulse 1.6s ease-out infinite;
+      }
+      @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 var(--red-glow); }
+        70% { box-shadow: 0 0 0 14px rgba(239,43,58,0); }
+        100% { box-shadow: 0 0 0 0 rgba(239,43,58,0); }
+      }
+      .top-right {
+        display: flex; align-items: center; gap: 14px;
+        font-size: 12px; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.08em;
+      }
+      .top-right a {
+        color: var(--muted); text-decoration: none;
+        border: 1px solid var(--border);
+        padding: 6px 12px; border-radius: 6px;
+      }
+      .top-right a:hover { color: var(--text); border-color: #3a4252; }
+      .top-right .dot {
+        display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+        background: #4b5563; margin-right: 6px; vertical-align: 1px;
+      }
+      .top-right.online .dot { background: var(--green); }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+        padding: 22px 22px 0;
+      }
+      .stat {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px 18px;
+      }
+      .stat .label {
+        font-size: 11px; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.1em;
+      }
+      .stat .value {
+        font-size: 30px; font-weight: 800; margin-top: 4px;
+        font-variant-numeric: tabular-nums;
+      }
+      .stat.active { border-color: rgba(239,43,58,0.5); }
+      .stat.active .value { color: var(--red); }
+      .stat.ack .value { color: var(--amber); }
+      .stat.res .value { color: var(--green); }
+
+      .section-header {
+        padding: 22px 22px 10px;
+        display: flex; justify-content: space-between; align-items: baseline;
+      }
+      .section-header h2 {
+        font-size: 13px; letter-spacing: 0.1em;
+        text-transform: uppercase; margin: 0; color: var(--muted);
+      }
+      .section-header .clear {
+        font-size: 11px; color: var(--muted); cursor: pointer;
+        background: none; border: none; text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .alerts {
+        padding: 0 22px 22px;
+        display: flex; flex-direction: column; gap: 10px;
+      }
+      .alert {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 16px;
+        padding: 16px 18px;
+        border-radius: 12px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        position: relative;
+        overflow: hidden;
+      }
+      .alert.active {
+        background: linear-gradient(180deg, rgba(239,43,58,0.18), rgba(239,43,58,0.06));
+        border-color: var(--red);
+        animation: flash 1.4s ease-in-out infinite;
+      }
+      @keyframes flash {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(239,43,58,0.0); }
+        50% { box-shadow: 0 0 24px 0 rgba(239,43,58,0.45); }
+      }
+      .alert.acknowledged { border-color: rgba(245, 158, 11, 0.6); }
+      .alert.resolved { opacity: 0.55; }
+
+      .alert-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+      .row1 {
+        display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+      }
+      .badge {
+        font-size: 10px; font-weight: 800; letter-spacing: 0.12em;
+        text-transform: uppercase;
+        padding: 3px 8px; border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+      .badge.active { background: var(--red); color: white; border-color: var(--red); }
+      .badge.acknowledged { background: rgba(245,158,11,0.15); color: var(--amber); border-color: rgba(245,158,11,0.5); }
+      .badge.resolved { background: rgba(34,197,94,0.12); color: var(--green); border-color: rgba(34,197,94,0.45); }
+
+      .room {
+        font-size: 24px; font-weight: 800; letter-spacing: 0.06em;
+        font-variant-numeric: tabular-nums;
+      }
+      .meta { font-size: 12px; color: var(--muted); }
+      .meta strong { color: var(--text); font-weight: 600; }
+
+      .actions { display: flex; gap: 8px; }
+      .actions button {
+        font: inherit; font-size: 12px; font-weight: 700;
+        letter-spacing: 0.06em; text-transform: uppercase;
+        padding: 9px 14px; border-radius: 8px; cursor: pointer;
+        border: 1px solid var(--border); background: var(--panel-2);
+        color: var(--text);
+      }
+      .actions button:hover { border-color: #3a4252; }
+      .actions button.primary {
+        background: var(--amber); border-color: var(--amber); color: #1a1306;
+      }
+      .actions button.success {
+        background: var(--green); border-color: var(--green); color: #06190f;
+      }
+      .actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+      .empty {
+        text-align: center; padding: 60px 20px;
+        color: var(--muted); font-size: 14px;
+        background: var(--panel); border: 1px dashed var(--border);
+        border-radius: 12px;
+      }
+      .empty .big { font-size: 18px; color: var(--text); margin-bottom: 6px; }
+
+      @media (max-width: 720px) {
+        .stats { grid-template-columns: repeat(2, 1fr); }
+        .alert { grid-template-columns: 1fr; }
+        .actions { justify-content: flex-end; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="brand">
+        <span class="pulse"></span>
+        Crisis Response · Staff Dashboard
+      </div>
+      <div class="top-right" id="status">
+        <a href="/">← Guest View</a>
+        <span><span class="dot"></span><span id="connText">connecting</span></span>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat active">
+        <div class="label">Active SOS</div>
+        <div class="value" id="statActive">0</div>
+      </div>
+      <div class="stat ack">
+        <div class="label">Acknowledged</div>
+        <div class="value" id="statAck">0</div>
+      </div>
+      <div class="stat res">
+        <div class="label">Resolved Today</div>
+        <div class="value" id="statRes">0</div>
+      </div>
+      <div class="stat">
+        <div class="label">Staff Online</div>
+        <div class="value" id="statStaff">0</div>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <h2>Incoming Alerts</h2>
+      <span class="meta" id="lastUpdate"></span>
+    </div>
+
+    <div class="alerts" id="alerts">
+      <div class="empty" id="empty">
+        <div class="big">No active alerts</div>
+        Waiting for incoming SOS signals…
+      </div>
+    </div>
+
+    <audio id="alertSound" preload="auto">
+      <source src="data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" type="audio/wav" />
+    </audio>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+      const socket = io();
+      const alertsEl = document.getElementById("alerts");
+      const emptyEl = document.getElementById("empty");
+      const statActive = document.getElementById("statActive");
+      const statAck = document.getElementById("statAck");
+      const statRes = document.getElementById("statRes");
+      const statStaff = document.getElementById("statStaff");
+      const connText = document.getElementById("connText");
+      const statusBar = document.getElementById("status");
+      const lastUpdate = document.getElementById("lastUpdate");
+
+      const operatorName =
+        (() => {
+          try { return localStorage.getItem("crisis:operator") || "Staff"; }
+          catch (e) { return "Staff"; }
+        })();
+
+      let alerts = [];
+
+      function fmtTime(ts) {
+        return new Date(ts).toLocaleTimeString([], {
+          hour: "2-digit", minute: "2-digit", second: "2-digit",
+        });
+      }
+      function fmtDate(ts) {
+        return new Date(ts).toLocaleDateString([], {
+          month: "short", day: "numeric",
+        });
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;",
+          '"': "&quot;", "'": "&#39;",
+        })[c]);
+      }
+
+      function isToday(ts) {
+        const d = new Date(ts);
+        const n = new Date();
+        return d.toDateString() === n.toDateString();
+      }
+
+      function render() {
+        const active = alerts.filter((a) => a.status === "active");
+        const ack = alerts.filter((a) => a.status === "acknowledged");
+        const res = alerts.filter(
+          (a) => a.status === "resolved" && a.resolvedAt && isToday(a.resolvedAt),
+        );
+        statActive.textContent = active.length;
+        statAck.textContent = ack.length;
+        statRes.textContent = res.length;
+
+        if (alerts.length === 0) {
+          emptyEl.style.display = "";
+          alertsEl.querySelectorAll(".alert").forEach((n) => n.remove());
+          return;
+        }
+        emptyEl.style.display = "none";
+        alertsEl.querySelectorAll(".alert").forEach((n) => n.remove());
+
+        for (const a of alerts) {
+          const div = document.createElement("div");
+          div.className = "alert " + a.status;
+          const ackLine = a.acknowledgedAt
+            ? '<div class="meta">Acknowledged by <strong>' +
+              escapeHtml(a.acknowledgedBy || "Staff") +
+              "</strong> at " +
+              fmtTime(a.acknowledgedAt) +
+              "</div>"
+            : "";
+          const resLine = a.resolvedAt
+            ? '<div class="meta">Resolved at ' + fmtTime(a.resolvedAt) + "</div>"
+            : "";
+
+          div.innerHTML =
+            '<div class="alert-info">' +
+              '<div class="row1">' +
+                '<span class="badge ' + a.status + '">' + a.status + "</span>" +
+                '<span class="room">Room ' + escapeHtml(a.room) + "</span>" +
+              "</div>" +
+              '<div class="meta">Triggered <strong>' + fmtTime(a.timestamp) +
+              "</strong> · " + fmtDate(a.timestamp) + "</div>" +
+              ackLine + resLine +
+            "</div>" +
+            '<div class="actions">' +
+              '<button class="primary" data-act="ack" ' +
+                (a.status !== "active" ? "disabled" : "") + ">Acknowledge</button>" +
+              '<button class="success" data-act="res" ' +
+                (a.status === "resolved" ? "disabled" : "") + ">Resolve</button>" +
+            "</div>";
+
+          div.querySelector('[data-act="ack"]').addEventListener("click", () => {
+            socket.emit("alert:acknowledge", { id: a.id, by: operatorName });
+          });
+          div.querySelector('[data-act="res"]').addEventListener("click", () => {
+            socket.emit("alert:resolve", { id: a.id });
+          });
+
+          alertsEl.appendChild(div);
+        }
+      }
+
+      function upsertAlert(alert) {
+        const idx = alerts.findIndex((a) => a.id === alert.id);
+        if (idx >= 0) alerts[idx] = alert;
+        else alerts.unshift(alert);
+        lastUpdate.textContent = "Updated " + fmtTime(Date.now());
+      }
+
+      socket.on("connect", () => {
+        statusBar.classList.add("online");
+        connText.textContent = "online";
+        socket.emit("staff:join");
+      });
+      socket.on("disconnect", () => {
+        statusBar.classList.remove("online");
+        connText.textContent = "offline";
+      });
+
+      socket.on("alerts:snapshot", (snapshot) => {
+        alerts = Array.isArray(snapshot) ? snapshot.slice() : [];
+        render();
+      });
+
+      socket.on("alert:new", (alert) => {
+        upsertAlert(alert);
+        render();
+        // Visual flash on new alert
+        document.title = "🚨 SOS Room " + alert.room;
+        setTimeout(() => (document.title = "Crisis Response — Staff Dashboard"), 4000);
+      });
+
+      socket.on("alert:update", (alert) => {
+        upsertAlert(alert);
+        render();
+      });
+
+      socket.on("staff:count", (n) => {
+        statStaff.textContent = n;
+      });
+    </script>
+  </body>
+</html>
