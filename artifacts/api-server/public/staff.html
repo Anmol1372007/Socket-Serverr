@@ -176,6 +176,39 @@
       }
       .alert.acknowledged { border-color: rgba(245, 158, 11, 0.6); }
       .alert.resolved { opacity: 0.55; }
+      .alert.overdue {
+        border-color: #a855f7 !important;
+        background: linear-gradient(180deg,
+          rgba(168, 85, 247, 0.18),
+          rgba(168, 85, 247, 0.06)) !important;
+        box-shadow: 0 0 0 2px rgba(168,85,247,0.35),
+                    0 0 40px rgba(168,85,247,0.45) !important;
+        animation: overduePulse 0.9s ease-in-out infinite;
+      }
+      @keyframes overduePulse {
+        0%, 100% { box-shadow: 0 0 0 2px rgba(168,85,247,0.35),
+                                0 0 30px rgba(168,85,247,0.35); }
+        50%      { box-shadow: 0 0 0 4px rgba(168,85,247,0.6),
+                                0 0 60px rgba(168,85,247,0.7); }
+      }
+      .badge.overdue {
+        background: #a855f7 !important;
+        color: white !important;
+        border-color: #a855f7 !important;
+      }
+      .overdue-tag {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        background: rgba(168,85,247,0.2);
+        color: #d8b4fe;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border: 1px solid rgba(168,85,247,0.5);
+      }
 
       .alert-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
       .row1 {
@@ -392,9 +425,18 @@
         emptyEl.style.display = "none";
         alertsEl.querySelectorAll(".alert").forEach((n) => n.remove());
 
+        const now = Date.now();
+        let hasOverdue = false;
         for (const a of alerts) {
+          const isOverdue =
+            a.status === "active" && now - a.timestamp >= OVERDUE_MS;
+          if (isOverdue) hasOverdue = true;
           const div = document.createElement("div");
-          div.className = "alert " + a.status;
+          div.className = "alert " + a.status + (isOverdue ? " overdue" : "");
+          const overdueTag = isOverdue
+            ? '<span class="overdue-tag">⚠ Overdue ' +
+              Math.floor((now - a.timestamp) / 1000) + "s</span>"
+            : "";
           const ackLine = a.acknowledgedAt
             ? '<div class="meta">Acknowledged by <strong>' +
               escapeHtml(a.acknowledgedBy || "Staff") +
@@ -409,8 +451,11 @@
           div.innerHTML =
             '<div class="alert-info">' +
               '<div class="row1">' +
-                '<span class="badge ' + a.status + '">' + a.status + "</span>" +
+                '<span class="badge ' + a.status +
+                  (isOverdue ? " overdue" : "") + '">' +
+                  (isOverdue ? "overdue" : a.status) + "</span>" +
                 '<span class="room">Room ' + escapeHtml(a.room) + "</span>" +
+                overdueTag +
               "</div>" +
               '<div class="meta">Triggered <strong>' + fmtTime(a.timestamp) +
               "</strong> · " + fmtDate(a.timestamp) + "</div>" +
@@ -432,7 +477,13 @@
 
           alertsEl.appendChild(div);
         }
+        updateUrgentSiren(hasOverdue);
       }
+
+      const OVERDUE_MS = 60 * 1000;
+      setInterval(() => {
+        if (alerts.some((a) => a.status === "active")) render();
+      }, 1000);
 
       function upsertAlert(alert) {
         const idx = alerts.findIndex((a) => a.id === alert.id);
@@ -489,31 +540,61 @@
         return audioCtx;
       }
 
-      function playSiren() {
+      function playSiren(urgent) {
         if (!sirenEnabled) return;
         const ctx = ensureAudio();
         if (!ctx) return;
         const now = ctx.currentTime;
-        const duration = 1.6;
+        const duration = urgent ? 0.9 : 1.6;
         const osc = ctx.createOscillator();
+        const osc2 = urgent ? ctx.createOscillator() : null;
         const gain = ctx.createGain();
         osc.type = "sawtooth";
-        // Two-tone wail: 600Hz <-> 950Hz, 4 sweeps
-        const f1 = 600, f2 = 950;
+        // Urgent: faster sweeps, higher pitch, louder, with a 2nd detuned osc.
+        const f1 = urgent ? 850 : 600;
+        const f2 = urgent ? 1400 : 950;
+        const sweeps = urgent ? 6 : 4;
+        const peakGain = urgent ? 0.42 : 0.18;
         osc.frequency.setValueAtTime(f1, now);
-        const sweepDur = duration / 4;
-        for (let i = 0; i < 4; i++) {
+        const sweepDur = duration / sweeps;
+        for (let i = 0; i < sweeps; i++) {
           const t = now + i * sweepDur;
           const target = i % 2 === 0 ? f2 : f1;
           osc.frequency.linearRampToValueAtTime(target, t + sweepDur);
         }
+        if (osc2) {
+          osc2.type = "square";
+          osc2.frequency.setValueAtTime(f1 * 1.5, now);
+          for (let i = 0; i < sweeps; i++) {
+            const t = now + i * sweepDur;
+            const target = (i % 2 === 0 ? f2 : f1) * 1.5;
+            osc2.frequency.linearRampToValueAtTime(target, t + sweepDur);
+          }
+        }
         gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.18, now + 0.04);
-        gain.gain.setValueAtTime(0.18, now + duration - 0.1);
+        gain.gain.linearRampToValueAtTime(peakGain, now + 0.03);
+        gain.gain.setValueAtTime(peakGain, now + duration - 0.08);
         gain.gain.linearRampToValueAtTime(0, now + duration);
-        osc.connect(gain).connect(ctx.destination);
+        osc.connect(gain);
+        if (osc2) osc2.connect(gain);
+        gain.connect(ctx.destination);
         osc.start(now);
         osc.stop(now + duration + 0.05);
+        if (osc2) {
+          osc2.start(now);
+          osc2.stop(now + duration + 0.05);
+        }
+      }
+
+      let urgentSirenInterval = null;
+      function updateUrgentSiren(active) {
+        if (active && !urgentSirenInterval) {
+          playSiren(true);
+          urgentSirenInterval = setInterval(() => playSiren(true), 1100);
+        } else if (!active && urgentSirenInterval) {
+          clearInterval(urgentSirenInterval);
+          urgentSirenInterval = null;
+        }
       }
 
       sirenToggle.addEventListener("click", () => {
