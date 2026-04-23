@@ -196,6 +196,70 @@
         color: white !important;
         border-color: #a855f7 !important;
       }
+      .offline-overlay {
+        position: fixed; inset: 0; z-index: 99999;
+        display: none; align-items: center; justify-content: center;
+        padding: 24px;
+        animation: offlineFlash 1.2s steps(2, end) infinite;
+      }
+      .offline-overlay.show { display: flex; }
+      @keyframes offlineFlash {
+        0%, 49%   { background: rgba(140, 0, 10, 0.95); }
+        50%, 100% { background: rgba(0, 0, 0, 0.95); }
+      }
+      .offline-card {
+        max-width: 520px; width: 100%;
+        background: #11151c;
+        border: 3px solid #ef2b3a;
+        border-radius: 16px;
+        padding: 32px 28px; text-align: center;
+        box-shadow: 0 0 80px rgba(239,43,58,0.6);
+      }
+      .offline-card .ico { font-size: 56px; display: block; margin-bottom: 8px; }
+      .offline-card h2 {
+        font-size: 26px; font-weight: 900; color: white;
+        margin: 0 0 12px; letter-spacing: 0.02em;
+      }
+      .offline-card p {
+        color: #fca5a5; font-size: 15px;
+        margin: 0 0 22px; line-height: 1.5;
+      }
+      .call-btn {
+        display: inline-flex; align-items: center; gap: 10px;
+        background: #ef2b3a; color: white;
+        font-weight: 800; font-size: 18px;
+        padding: 16px 28px; border-radius: 12px;
+        text-decoration: none;
+        letter-spacing: 0.05em; text-transform: uppercase;
+        box-shadow: 0 6px 24px rgba(239,43,58,0.5);
+      }
+      .reconnecting {
+        margin-top: 18px; font-size: 12px; color: var(--muted);
+        letter-spacing: 0.1em; text-transform: uppercase;
+      }
+      .reconnecting .dot {
+        display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+        background: var(--amber); margin-right: 6px; vertical-align: 1px;
+        animation: blink 1s ease-in-out infinite;
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 1; } 50% { opacity: 0.3; }
+      }
+      .reconnect-toast {
+        position: fixed; bottom: 18px; left: 50%;
+        transform: translateX(-50%);
+        background: rgba(34,197,94,0.18);
+        border: 1px solid var(--green);
+        color: #d6fbe2;
+        padding: 10px 18px; border-radius: 999px;
+        font-size: 13px; font-weight: 700;
+        letter-spacing: 0.08em; text-transform: uppercase;
+        z-index: 9998;
+        opacity: 0; pointer-events: none;
+        transition: opacity 250ms ease;
+      }
+      .reconnect-toast.show { opacity: 1; }
+
       .overdue-tag {
         display: inline-block;
         margin-left: 8px;
@@ -492,14 +556,34 @@
         lastUpdate.textContent = "Updated " + fmtTime(Date.now());
       }
 
+      const offlineOverlay = document.getElementById("offlineOverlay");
+      const reconnectToast = document.getElementById("reconnectToast");
+      let offlineTimer = null;
+      let wasDisconnected = false;
+
+      function showReconnected() {
+        if (!reconnectToast) return;
+        reconnectToast.classList.add("show");
+        setTimeout(() => reconnectToast.classList.remove("show"), 2500);
+      }
+
       socket.on("connect", () => {
         statusBar.classList.add("online");
         connText.textContent = "online";
+        if (offlineTimer) { clearTimeout(offlineTimer); offlineTimer = null; }
+        offlineOverlay.classList.remove("show");
+        if (wasDisconnected) showReconnected();
+        wasDisconnected = false;
         socket.emit("staff:join");
       });
       socket.on("disconnect", () => {
         statusBar.classList.remove("online");
         connText.textContent = "offline";
+        wasDisconnected = true;
+        if (offlineTimer) clearTimeout(offlineTimer);
+        offlineTimer = setTimeout(() => {
+          offlineOverlay.classList.add("show");
+        }, 1500);
       });
 
       socket.on("alerts:snapshot", (snapshot) => {
@@ -730,5 +814,18 @@
         statStaff.textContent = n;
       });
     </script>
+    <div class="offline-overlay" id="offlineOverlay" role="alertdialog" aria-live="assertive">
+      <div class="offline-card">
+        <span class="ico">📵</span>
+        <h2>Offline! Call Emergency Services Directly</h2>
+        <p>
+          The dashboard has lost its connection. Incoming SOS alerts may be
+          missed. Use a phone to dial emergency services immediately.
+        </p>
+        <a class="call-btn" href="tel:112">📞 Call 112</a>
+        <div class="reconnecting"><span class="dot"></span>Trying to reconnect…</div>
+      </div>
+    </div>
+    <div class="reconnect-toast" id="reconnectToast">✅ Reconnected</div>
   </body>
 </html>

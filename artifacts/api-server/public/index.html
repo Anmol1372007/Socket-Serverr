@@ -231,6 +231,89 @@
       }
       .reset-btn:hover { color: var(--text); border-color: #3a4252; }
 
+      .offline-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        background: rgba(0,0,0,0.92);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        animation: offlineFlash 1.2s steps(2, end) infinite;
+      }
+      .offline-overlay.show { display: flex; }
+      @keyframes offlineFlash {
+        0%, 49%   { background: rgba(140, 0, 10, 0.95); }
+        50%, 100% { background: rgba(0, 0, 0, 0.95); }
+      }
+      .offline-card {
+        max-width: 480px;
+        width: 100%;
+        background: #11151c;
+        border: 3px solid var(--red);
+        border-radius: 16px;
+        padding: 32px 28px;
+        text-align: center;
+        box-shadow: 0 0 80px rgba(239,43,58,0.6);
+      }
+      .offline-icon {
+        font-size: 56px;
+        margin-bottom: 8px;
+        display: block;
+      }
+      .offline-title {
+        font-size: 26px;
+        font-weight: 900;
+        color: white;
+        margin: 0 0 12px;
+        letter-spacing: 0.02em;
+      }
+      .offline-msg {
+        color: #fca5a5;
+        font-size: 15px;
+        margin: 0 0 22px;
+        line-height: 1.5;
+      }
+      .call-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--red);
+        color: white;
+        font-weight: 800;
+        font-size: 18px;
+        padding: 16px 28px;
+        border-radius: 12px;
+        text-decoration: none;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        box-shadow: 0 6px 24px rgba(239,43,58,0.5);
+      }
+      .call-btn:hover {
+        background: var(--red-deep);
+        transform: translateY(-1px);
+      }
+      .reconnecting {
+        margin-top: 18px;
+        font-size: 12px;
+        color: var(--muted);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .reconnecting .dot {
+        display: inline-block;
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--amber);
+        margin-right: 6px;
+        vertical-align: 1px;
+        animation: blink 1s ease-in-out infinite;
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+      }
+
       .sos {
         display: block;
         width: 240px;
@@ -367,6 +450,19 @@
       </div>
     </main>
 
+    <div class="offline-overlay" id="offlineOverlay" role="alertdialog" aria-live="assertive">
+      <div class="offline-card">
+        <span class="offline-icon">📵</span>
+        <h2 class="offline-title">Offline! Call Emergency Services Directly</h2>
+        <p class="offline-msg">
+          The crisis system is not connected. Do <strong>not</strong> wait —
+          dial your local emergency number now.
+        </p>
+        <a class="call-btn" href="tel:112">📞 Call 112</a>
+        <div class="reconnecting"><span class="dot"></span>Trying to reconnect…</div>
+      </div>
+    </div>
+
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
       const socket = io();
@@ -392,13 +488,28 @@
       let connected = false;
       let awaitingResponse = false;
 
+      const offlineOverlay = document.getElementById("offlineOverlay");
+      let offlineTimer = null;
+
       function setConnected(on) {
         connected = on;
         statusEl.classList.toggle("online", on);
         statusEl.innerHTML =
           '<span class="dot"></span>' + (on ? "online" : "offline");
         sosBtn.disabled = !on || awaitingResponse;
+        if (on) {
+          if (offlineTimer) { clearTimeout(offlineTimer); offlineTimer = null; }
+          offlineOverlay.classList.remove("show");
+        } else {
+          // Brief grace period before showing the warning
+          if (offlineTimer) clearTimeout(offlineTimer);
+          offlineTimer = setTimeout(() => {
+            offlineOverlay.classList.add("show");
+          }, 1500);
+        }
       }
+      // Initial state: not connected yet
+      setConnected(false);
 
       socket.on("connect", () => setConnected(true));
       socket.on("disconnect", () => setConnected(false));
