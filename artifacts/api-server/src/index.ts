@@ -35,6 +35,60 @@ interface SosAlert {
 
 const alerts: SosAlert[] = [];
 const MAX_ALERTS = 200;
+
+function csvEscape(value: string): string {
+  if (/[",\n\r]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+function alertsToCsv(): string {
+  const header = [
+    "id",
+    "room",
+    "triggered_at",
+    "status",
+    "acknowledged_by",
+    "acknowledged_at",
+    "resolved_at",
+    "response_time_seconds",
+  ].join(",");
+  const rows = alerts
+    .slice()
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .map((a) => {
+      const responseSecs =
+        a.acknowledgedAt != null
+          ? Math.round((a.acknowledgedAt - a.timestamp) / 1000).toString()
+          : "";
+      return [
+        a.id,
+        a.room,
+        new Date(a.timestamp).toISOString(),
+        a.status,
+        a.acknowledgedBy ?? "",
+        a.acknowledgedAt != null
+          ? new Date(a.acknowledgedAt).toISOString()
+          : "",
+        a.resolvedAt != null ? new Date(a.resolvedAt).toISOString() : "",
+        responseSecs,
+      ]
+        .map((v) => csvEscape(String(v)))
+        .join(",");
+    });
+  return [header, ...rows].join("\n") + "\n";
+}
+
+app.get("/api/alerts.csv", (_req, res) => {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="sos-alerts-${stamp}.csv"`,
+  );
+  res.send(alertsToCsv());
+});
 let staffCount = 0;
 
 function publishStaffCount() {
