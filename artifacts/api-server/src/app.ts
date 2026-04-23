@@ -1,4 +1,6 @@
 import express, { type Express } from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
@@ -30,5 +32,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirnameLocal = path.dirname(__filename);
+const publicDir = path.resolve(__dirnameLocal, "../public");
+app.use(express.static(publicDir));
 
 export default app;
