@@ -69,6 +69,20 @@
         background: #4b5563; margin-right: 6px; vertical-align: 1px;
       }
       .top-right.online .dot { background: var(--green); }
+      .siren-toggle {
+        background: var(--panel-2); border: 1px solid var(--border);
+        color: var(--muted); font: inherit; font-size: 11px;
+        text-transform: uppercase; letter-spacing: 0.08em;
+        padding: 6px 12px; border-radius: 6px; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 6px;
+      }
+      .siren-toggle:hover { color: var(--text); border-color: #3a4252; }
+      .siren-toggle.on { color: var(--red); border-color: rgba(239,43,58,0.5); }
+      .siren-toggle .ico {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: #4b5563;
+      }
+      .siren-toggle.on .ico { background: var(--red); }
 
       .stats {
         display: grid;
@@ -199,6 +213,9 @@
       </div>
       <div class="top-right" id="status">
         <a href="/">← Guest View</a>
+        <button class="siren-toggle" id="sirenToggle" type="button">
+          <span class="ico"></span><span id="sirenLabel">Siren: Off</span>
+        </button>
         <span><span class="dot"></span><span id="connText">connecting</span></span>
       </div>
     </div>
@@ -233,10 +250,6 @@
         Waiting for incoming SOS signals…
       </div>
     </div>
-
-    <audio id="alertSound" preload="auto">
-      <source src="data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" type="audio/wav" />
-    </audio>
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
@@ -368,10 +381,80 @@
       socket.on("alert:new", (alert) => {
         upsertAlert(alert);
         render();
-        // Visual flash on new alert
+        playSiren();
         document.title = "🚨 SOS Room " + alert.room;
         setTimeout(() => (document.title = "Crisis Response — Staff Dashboard"), 4000);
       });
+
+      // --- Siren (Web Audio synthesized, no asset needed) ---
+      const sirenToggle = document.getElementById("sirenToggle");
+      const sirenLabel = document.getElementById("sirenLabel");
+      let sirenEnabled = false;
+      try {
+        sirenEnabled = localStorage.getItem("crisis:siren") !== "off";
+      } catch (e) { sirenEnabled = true; }
+      function updateSirenUi() {
+        sirenToggle.classList.toggle("on", sirenEnabled);
+        sirenLabel.textContent = "Siren: " + (sirenEnabled ? "On" : "Off");
+      }
+      updateSirenUi();
+
+      let audioCtx = null;
+      function ensureAudio() {
+        if (!audioCtx) {
+          const Ctx = window.AudioContext || window.webkitAudioContext;
+          if (Ctx) audioCtx = new Ctx();
+        }
+        if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+        return audioCtx;
+      }
+
+      function playSiren() {
+        if (!sirenEnabled) return;
+        const ctx = ensureAudio();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        const duration = 1.6;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sawtooth";
+        // Two-tone wail: 600Hz <-> 950Hz, 4 sweeps
+        const f1 = 600, f2 = 950;
+        osc.frequency.setValueAtTime(f1, now);
+        const sweepDur = duration / 4;
+        for (let i = 0; i < 4; i++) {
+          const t = now + i * sweepDur;
+          const target = i % 2 === 0 ? f2 : f1;
+          osc.frequency.linearRampToValueAtTime(target, t + sweepDur);
+        }
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.18, now + 0.04);
+        gain.gain.setValueAtTime(0.18, now + duration - 0.1);
+        gain.gain.linearRampToValueAtTime(0, now + duration);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + duration + 0.05);
+      }
+
+      sirenToggle.addEventListener("click", () => {
+        sirenEnabled = !sirenEnabled;
+        try {
+          localStorage.setItem("crisis:siren", sirenEnabled ? "on" : "off");
+        } catch (e) {}
+        updateSirenUi();
+        if (sirenEnabled) {
+          // Unlock audio context with a short test chirp on user gesture
+          ensureAudio();
+          playSiren();
+        }
+      });
+
+      // Browsers require a user gesture to start audio. Unlock on first click.
+      window.addEventListener(
+        "click",
+        () => { ensureAudio(); },
+        { once: true },
+      );
 
       socket.on("alert:update", (alert) => {
         upsertAlert(alert);
