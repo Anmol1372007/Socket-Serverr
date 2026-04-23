@@ -198,6 +198,37 @@
       }
       .empty .big { font-size: 18px; color: var(--text); margin-bottom: 6px; }
 
+      .incidents {
+        margin: 0 22px 28px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .incidents-empty {
+        padding: 24px; text-align: center;
+        color: var(--muted); font-size: 13px;
+      }
+      table.inc {
+        width: 100%; border-collapse: collapse;
+        font-size: 13px;
+      }
+      table.inc th, table.inc td {
+        text-align: left; padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+        font-variant-numeric: tabular-nums;
+      }
+      table.inc thead th {
+        background: var(--panel-2);
+        font-size: 11px; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.08em;
+        font-weight: 600;
+      }
+      table.inc tbody tr:last-child td { border-bottom: none; }
+      table.inc tbody tr:hover { background: rgba(255,255,255,0.02); }
+      table.inc .room { font-weight: 700; }
+      table.inc .badge { display: inline-block; }
+
       @media (max-width: 720px) {
         .stats { grid-template-columns: repeat(2, 1fr); }
         .alert { grid-template-columns: 1fr; }
@@ -253,6 +284,14 @@
         <div class="big">No active alerts</div>
         Waiting for incoming SOS signals…
       </div>
+    </div>
+
+    <div class="section-header">
+      <h2>Last 10 Incidents (Persistent)</h2>
+      <button class="clear" id="refreshIncidents" type="button">Refresh</button>
+    </div>
+    <div class="incidents" id="incidents">
+      <div class="incidents-empty">No incidents recorded yet.</div>
     </div>
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
@@ -387,6 +426,7 @@
         render();
         playSiren();
         showDesktopNotification(alert);
+        loadIncidents();
         document.title = "🚨 SOS Room " + alert.room;
         setTimeout(() => (document.title = "Crisis Response — Staff Dashboard"), 4000);
       });
@@ -511,9 +551,63 @@
         } catch (e) {}
       }
 
+      // --- Persistent Incidents (last 10 from DB) ---
+      const incidentsEl = document.getElementById("incidents");
+      const refreshBtn = document.getElementById("refreshIncidents");
+
+      async function loadIncidents() {
+        try {
+          const res = await fetch("/api/incidents", { cache: "no-store" });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const data = await res.json();
+          renderIncidents(data.incidents || []);
+        } catch (e) {
+          incidentsEl.innerHTML =
+            '<div class="incidents-empty">Could not load incidents.</div>';
+        }
+      }
+
+      function renderIncidents(list) {
+        if (!list.length) {
+          incidentsEl.innerHTML =
+            '<div class="incidents-empty">No incidents recorded yet.</div>';
+          return;
+        }
+        const rows = list
+          .map((i) => {
+            const d = new Date(i.timestamp);
+            const when =
+              d.toLocaleDateString([], { month: "short", day: "numeric" }) +
+              " · " +
+              d.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+            return (
+              "<tr>" +
+              "<td>#" + escapeHtml(i.id) + "</td>" +
+              '<td class="room">' + escapeHtml(i.room) + "</td>" +
+              "<td>" + escapeHtml(i.emergencyType || "SOS") + "</td>" +
+              '<td><span class="badge ' + i.status + '">' +
+                i.status + "</span></td>" +
+              "<td>" + when + "</td>" +
+              "</tr>"
+            );
+          })
+          .join("");
+        incidentsEl.innerHTML =
+          '<table class="inc"><thead><tr>' +
+          "<th>ID</th><th>Room</th><th>Type</th><th>Status</th><th>When</th>" +
+          "</tr></thead><tbody>" + rows + "</tbody></table>";
+      }
+
+      refreshBtn.addEventListener("click", loadIncidents);
+      loadIncidents();
+
       socket.on("alert:update", (alert) => {
         upsertAlert(alert);
         render();
+        loadIncidents();
       });
 
       socket.on("staff:count", (n) => {

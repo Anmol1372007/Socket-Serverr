@@ -1,5 +1,7 @@
 import { createServer } from "node:http";
 import { Server as SocketIOServer } from "socket.io";
+import { desc, eq } from "drizzle-orm";
+import { db, alertsTable, type Alert } from "@workspace/db";
 import app from "./app";
 import { logger } from "./lib/logger";
 
@@ -26,6 +28,7 @@ const io = new SocketIOServer(httpServer, {
 interface SosAlert {
   id: string;
   room: string;
+  emergencyType: string;
   timestamp: number;
   status: "active" | "acknowledged" | "resolved";
   acknowledgedBy?: string;
@@ -33,8 +36,35 @@ interface SosAlert {
   resolvedAt?: number;
 }
 
-const alerts: SosAlert[] = [];
-const MAX_ALERTS = 200;
+function rowToAlert(row: Alert): SosAlert {
+  const meta = ackMeta.get(row.id);
+  return {
+    id: String(row.id),
+    room: row.roomNumber,
+    emergencyType: row.emergencyType,
+    timestamp: row.createdAt.getTime(),
+    status: row.status as SosAlert["status"],
+    acknowledgedBy: meta?.acknowledgedBy,
+    acknowledgedAt: meta?.acknowledgedAt,
+    resolvedAt: meta?.resolvedAt,
+  };
+}
+
+interface AckMeta {
+  acknowledgedBy?: string;
+  acknowledgedAt?: number;
+  resolvedAt?: number;
+}
+const ackMeta = new Map<number, AckMeta>();
+
+async function loadRecentAlerts(limit = 50): Promise<SosAlert[]> {
+  const rows = await db
+    .select()
+    .from(alertsTable)
+    .orderBy(desc(alertsTable.createdAt))
+    .limit(limit);
+  return rows.map(rowToAlert);
+}
 
 function csvEscape(value: string): string {
   if (/[",\n\r]/.test(value)) {
@@ -43,10 +73,11 @@ function csvEscape(value: string): string {
   return value;
 }
 
-function alertsToCsv(): string {
+function alertsToCsv(alerts: SosAlert[]): string {
   const header = [
     "id",
     "room",
+    "emergency_type",
     "triggered_at",
     "status",
     "acknowledged_by",
@@ -65,6 +96,7 @@ function alertsToCsv(): string {
       return [
         a.id,
         a.room,
+        a.emergencyType,
         new Date(a.timestamp).toISOString(),
         a.status,
         a.acknowledgedBy ?? "",
@@ -80,14 +112,28 @@ function alertsToCsv(): string {
   return [header, ...rows].join("\n") + "\n";
 }
 
-app.get("/api/alerts.csv", (_req, res) => {
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader(
-    "Content-Disposition",
-    `attachment; filename="sos-alerts-${stamp}.csv"`,
-  );
-  res.send(alertsToCsv());
+app.get("/api/alerts.csv", async (_req, res, next) => {
+  try {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const all = await loadRecentAlerts(1000);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="sos-alerts-${stamp}.csv"`,
+    );
+    res.send(alertsToCsv(all));
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get("/api/incidents", async (_req, res, next) => {
+  try {
+    const recent = await loadRecentAlerts(10);
+    res.json({ incidents: recent });
+  } catch (err) {
+    next(err);
+  }
 });
 let staffCount = 0;
 
@@ -98,61 +144,99 @@ function publishStaffCount() {
 io.on("connection", (socket) => {
   logger.info({ socketId: socket.id }, "Socket connected");
 
-  socket.on("staff:join", () => {
+  socket.on("staff:join", async () => {
     socket.join("staff");
     staffCount += 1;
-    socket.emit("alerts:snapshot", alerts);
+    try {
+      const snapshot = await loadRecentAlerts(50);
+      socket.emit("alerts:snapshot", snapshot);
+    } catch (err) {
+      logger.error({ err }, "Failed to load alerts snapshot");
+      socket.emit("alerts:snapshot", []);
+    }
     publishStaffCount();
     logger.info({ socketId: socket.id, staffCount }, "Staff joined");
   });
 
-  socket.on("guest:sos", (rawRoom: unknown) => {
+  socket.on("guest:sos", async (rawRoom: unknown) => {
     const room =
       typeof rawRoom === "string" && rawRoom.trim().length > 0
         ? rawRoom.trim().slice(0, 16).toUpperCase()
         : "UNKNOWN";
 
-    const alert: SosAlert = {
-      id: `${Date.now()}-${socket.id.slice(0, 6)}`,
-      room,
-      timestamp: Date.now(),
-      status: "active",
-    };
-    alerts.unshift(alert);
-    if (alerts.length > MAX_ALERTS) alerts.pop();
+    try {
+      const [row] = await db
+        .insert(alertsTable)
+        .values({
+          roomNumber: room,
+          emergencyType: "SOS",
+          status: "active",
+        })
+        .returning();
+      if (!row) throw new Error("Insert returned no row");
+      const alert = rowToAlert(row);
 
-    io.to("staff").emit("alert:new", alert);
-    socket.emit("guest:sos:received", alert);
-    logger.warn({ alert }, "EMERGENCY SOS triggered");
+      io.to("staff").emit("alert:new", alert);
+      socket.emit("guest:sos:received", alert);
+      logger.warn({ alert }, "EMERGENCY SOS triggered");
+    } catch (err) {
+      logger.error({ err, room }, "Failed to persist SOS alert");
+      socket.emit("guest:sos:error", "Could not save your alert. Try again.");
+    }
   });
 
   socket.on(
     "alert:acknowledge",
-    (payload: { id?: unknown; by?: unknown } | undefined) => {
-      const id = typeof payload?.id === "string" ? payload.id : null;
+    async (payload: { id?: unknown; by?: unknown } | undefined) => {
+      const idStr = typeof payload?.id === "string" ? payload.id : null;
+      const idNum = idStr ? Number(idStr) : NaN;
+      if (!Number.isFinite(idNum)) return;
       const by =
         typeof payload?.by === "string" && payload.by.trim().length > 0
           ? payload.by.trim().slice(0, 32)
           : "Staff";
-      if (!id) return;
-      const alert = alerts.find((a) => a.id === id);
-      if (!alert || alert.status !== "active") return;
-      alert.status = "acknowledged";
-      alert.acknowledgedBy = by;
-      alert.acknowledgedAt = Date.now();
-      io.to("staff").emit("alert:update", alert);
+      try {
+        const [row] = await db
+          .update(alertsTable)
+          .set({ status: "acknowledged" })
+          .where(eq(alertsTable.id, idNum))
+          .returning();
+        if (!row) return;
+        ackMeta.set(idNum, {
+          ...(ackMeta.get(idNum) ?? {}),
+          acknowledgedBy: by,
+          acknowledgedAt: Date.now(),
+        });
+        io.to("staff").emit("alert:update", rowToAlert(row));
+      } catch (err) {
+        logger.error({ err, idNum }, "Failed to acknowledge alert");
+      }
     },
   );
 
-  socket.on("alert:resolve", (payload: { id?: unknown } | undefined) => {
-    const id = typeof payload?.id === "string" ? payload.id : null;
-    if (!id) return;
-    const alert = alerts.find((a) => a.id === id);
-    if (!alert || alert.status === "resolved") return;
-    alert.status = "resolved";
-    alert.resolvedAt = Date.now();
-    io.to("staff").emit("alert:update", alert);
-  });
+  socket.on(
+    "alert:resolve",
+    async (payload: { id?: unknown } | undefined) => {
+      const idStr = typeof payload?.id === "string" ? payload.id : null;
+      const idNum = idStr ? Number(idStr) : NaN;
+      if (!Number.isFinite(idNum)) return;
+      try {
+        const [row] = await db
+          .update(alertsTable)
+          .set({ status: "resolved" })
+          .where(eq(alertsTable.id, idNum))
+          .returning();
+        if (!row) return;
+        ackMeta.set(idNum, {
+          ...(ackMeta.get(idNum) ?? {}),
+          resolvedAt: Date.now(),
+        });
+        io.to("staff").emit("alert:update", rowToAlert(row));
+      } catch (err) {
+        logger.error({ err, idNum }, "Failed to resolve alert");
+      }
+    },
+  );
 
   socket.on("disconnect", () => {
     if (socket.rooms.has("staff") || socket.data["isStaff"]) {
