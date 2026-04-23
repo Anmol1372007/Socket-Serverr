@@ -213,6 +213,9 @@
       </div>
       <div class="top-right" id="status">
         <a href="/">← Guest View</a>
+        <button class="siren-toggle" id="notifyToggle" type="button">
+          <span class="ico"></span><span id="notifyLabel">Notifications: Off</span>
+        </button>
         <button class="siren-toggle" id="sirenToggle" type="button">
           <span class="ico"></span><span id="sirenLabel">Siren: Off</span>
         </button>
@@ -382,6 +385,7 @@
         upsertAlert(alert);
         render();
         playSiren();
+        showDesktopNotification(alert);
         document.title = "🚨 SOS Room " + alert.room;
         setTimeout(() => (document.title = "Crisis Response — Staff Dashboard"), 4000);
       });
@@ -455,6 +459,56 @@
         () => { ensureAudio(); },
         { once: true },
       );
+
+      // --- Desktop Notifications ---
+      const notifyToggle = document.getElementById("notifyToggle");
+      const notifyLabel = document.getElementById("notifyLabel");
+      const supportsNotify = "Notification" in window;
+
+      function notifyState() {
+        if (!supportsNotify) return "unsupported";
+        if (Notification.permission === "granted") return "on";
+        if (Notification.permission === "denied") return "blocked";
+        return "off";
+      }
+      function updateNotifyUi() {
+        const s = notifyState();
+        notifyToggle.classList.toggle("on", s === "on");
+        const labels = {
+          on: "Notifications: On",
+          off: "Notifications: Off",
+          blocked: "Notifications: Blocked",
+          unsupported: "Notifications: N/A",
+        };
+        notifyLabel.textContent = labels[s];
+        notifyToggle.disabled = s === "unsupported" || s === "blocked";
+      }
+      updateNotifyUi();
+
+      notifyToggle.addEventListener("click", async () => {
+        if (!supportsNotify) return;
+        if (Notification.permission === "default") {
+          try { await Notification.requestPermission(); } catch (e) {}
+        }
+        updateNotifyUi();
+      });
+
+      function showDesktopNotification(alert) {
+        if (!supportsNotify || Notification.permission !== "granted") return;
+        if (document.visibilityState === "visible" && document.hasFocus()) return;
+        try {
+          const t = new Date(alert.timestamp).toLocaleTimeString();
+          const n = new Notification("🚨 SOS — Room " + alert.room, {
+            body: "Triggered at " + t + ". Tap to open the dashboard.",
+            tag: "sos-" + alert.id,
+            requireInteraction: true,
+          });
+          n.onclick = () => {
+            window.focus();
+            n.close();
+          };
+        } catch (e) {}
+      }
 
       socket.on("alert:update", (alert) => {
         upsertAlert(alert);
