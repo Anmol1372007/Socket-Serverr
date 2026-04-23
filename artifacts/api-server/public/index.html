@@ -134,10 +134,102 @@
         outline: none;
         text-align: center;
       }
-      .field input:focus {
+      .field input:focus, .field select:focus {
         border-color: var(--red);
         box-shadow: 0 0 0 3px rgba(239, 43, 58, 0.18);
       }
+      .field select {
+        width: 100%;
+        font: inherit;
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        padding: 14px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        color: var(--text);
+        outline: none;
+        text-align: center;
+        appearance: none;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='%238a93a3' d='M6 8L0 0h12z'/></svg>");
+        background-repeat: no-repeat;
+        background-position: right 16px center;
+      }
+
+      .confirmation {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+        padding: 16px 0 8px;
+      }
+      .confirmation.show { display: flex; }
+      .check-circle {
+        width: 96px; height: 96px;
+        border-radius: 50%;
+        background: rgba(34, 197, 94, 0.15);
+        border: 3px solid var(--green);
+        display: grid; place-items: center;
+        animation: pop 400ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
+      }
+      @keyframes pop {
+        0% { transform: scale(0.4); opacity: 0; }
+        100% { transform: scale(1); opacity: 1; }
+      }
+      .check-circle svg { width: 52px; height: 52px; stroke: var(--green); }
+      .confirm-title {
+        margin: 0; font-size: 22px; font-weight: 700;
+        color: var(--text);
+      }
+      .confirm-msg {
+        margin: 0; color: var(--muted); font-size: 14px;
+        max-width: 320px; line-height: 1.5;
+      }
+      .confirm-meta {
+        font-size: 12px; color: var(--muted);
+        background: var(--panel-2);
+        padding: 10px 14px; border-radius: 8px;
+        border: 1px solid var(--border);
+      }
+      .confirm-meta strong { color: var(--text); }
+      .status-pill {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 16px; border-radius: 999px;
+        font-size: 13px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.08em;
+      }
+      .status-pill.received {
+        background: rgba(34, 197, 94, 0.12);
+        border: 1px solid rgba(34, 197, 94, 0.4);
+        color: #b7f7c8;
+      }
+      .status-pill.dispatched {
+        background: rgba(59, 130, 246, 0.14);
+        border: 1px solid rgba(59, 130, 246, 0.45);
+        color: #bfdbfe;
+        animation: dispatchPulse 1.4s ease-in-out infinite;
+      }
+      .status-pill.resolved {
+        background: rgba(34, 197, 94, 0.18);
+        border: 1px solid var(--green);
+        color: #d6fbe2;
+      }
+      @keyframes dispatchPulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.45); }
+        50% { box-shadow: 0 0 0 10px rgba(59,130,246,0); }
+      }
+      .reset-btn {
+        margin-top: 6px;
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        padding: 8px 16px; border-radius: 8px;
+        font: inherit; font-size: 12px;
+        text-transform: uppercase; letter-spacing: 0.08em;
+        cursor: pointer;
+      }
+      .reset-btn:hover { color: var(--text); border-color: #3a4252; }
 
       .sos {
         display: block;
@@ -232,21 +324,46 @@
     <main>
       <div class="card">
         <div class="status" id="status"><span class="dot"></span>connecting</div>
-        <h1>Emergency Assistance</h1>
-        <p class="subtitle">Press and hold the button below to alert staff immediately.</p>
 
-        <div class="field">
-          <label for="room">Your Room Number</label>
-          <input id="room" placeholder="e.g. 412" maxlength="16" autocomplete="off" />
+        <div id="formView">
+          <h1>Emergency Assistance</h1>
+          <p class="subtitle">Select an emergency type and press the button below to alert staff immediately.</p>
+
+          <div class="field">
+            <label for="room">Your Room Number</label>
+            <input id="room" placeholder="e.g. 412" maxlength="16" autocomplete="off" />
+          </div>
+
+          <div class="field">
+            <label for="emergencyType">Select Emergency Type</label>
+            <select id="emergencyType">
+              <option value="Medical">🩺 Medical</option>
+              <option value="Fire">🔥 Fire</option>
+              <option value="Security">🛡️ Security</option>
+            </select>
+          </div>
+
+          <button class="sos" id="sos" disabled>
+            TRIGGER
+            <small>SOS</small>
+          </button>
+
+          <p class="help">A staff member will be dispatched to your room.</p>
         </div>
 
-        <button class="sos" id="sos" disabled>
-          TRIGGER
-          <small>SOS</small>
-        </button>
-
-        <p class="help">A staff member will be dispatched to your room.</p>
-        <div class="toast" id="toast"></div>
+        <div class="confirmation" id="confirmView">
+          <div class="check-circle">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="3"
+              stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="4 12.5 10 18.5 20 6.5"></polyline>
+            </svg>
+          </div>
+          <h1 class="confirm-title" id="confirmTitle">Alert Received!</h1>
+          <p class="confirm-msg" id="confirmMsg">Help is on the way.</p>
+          <span class="status-pill received" id="statusPill">Awaiting Staff</span>
+          <div class="confirm-meta" id="confirmMeta"></div>
+          <button class="reset-btn" id="resetBtn">Send another alert</button>
+        </div>
       </div>
     </main>
 
@@ -255,34 +372,90 @@
       const socket = io();
       const sosBtn = document.getElementById("sos");
       const roomInput = document.getElementById("room");
+      const typeSelect = document.getElementById("emergencyType");
       const statusEl = document.getElementById("status");
-      const toast = document.getElementById("toast");
+      const formView = document.getElementById("formView");
+      const confirmView = document.getElementById("confirmView");
+      const confirmTitle = document.getElementById("confirmTitle");
+      const confirmMsg = document.getElementById("confirmMsg");
+      const confirmMeta = document.getElementById("confirmMeta");
+      const statusPill = document.getElementById("statusPill");
+      const resetBtn = document.getElementById("resetBtn");
 
       try {
         const saved = localStorage.getItem("crisis:room");
         if (saved) roomInput.value = saved;
+        const savedType = localStorage.getItem("crisis:type");
+        if (savedType) typeSelect.value = savedType;
       } catch (e) {}
 
+      let connected = false;
+      let awaitingResponse = false;
+
       function setConnected(on) {
+        connected = on;
         statusEl.classList.toggle("online", on);
         statusEl.innerHTML =
           '<span class="dot"></span>' + (on ? "online" : "offline");
-        sosBtn.disabled = !on;
+        sosBtn.disabled = !on || awaitingResponse;
       }
 
       socket.on("connect", () => setConnected(true));
       socket.on("disconnect", () => setConnected(false));
 
-      socket.on("guest:sos:received", (alert) => {
+      function showConfirmation(alert) {
+        formView.style.display = "none";
+        confirmView.classList.add("show");
         const t = new Date(alert.timestamp).toLocaleTimeString();
-        toast.classList.add("show");
-        toast.textContent =
-          "SOS received for room " + alert.room + " at " + t + ". Help is on the way.";
-        sosBtn.disabled = true;
-        setTimeout(() => {
-          toast.classList.remove("show");
-          if (socket.connected) sosBtn.disabled = false;
-        }, 6000);
+        confirmMeta.innerHTML =
+          "Room <strong>" + alert.room + "</strong> · " +
+          "<strong>" + alert.emergencyType + "</strong> · " +
+          "Triggered at <strong>" + t + "</strong>";
+        applyStatus(alert);
+      }
+
+      function applyStatus(alert) {
+        statusPill.classList.remove("received", "dispatched", "resolved");
+        if (alert.status === "active") {
+          confirmTitle.textContent = "Alert Received!";
+          confirmMsg.textContent = "Help is on the way.";
+          statusPill.textContent = "Awaiting Staff";
+          statusPill.classList.add("received");
+        } else if (alert.status === "acknowledged") {
+          confirmTitle.textContent = "Staff is Dispatched";
+          confirmMsg.textContent =
+            "A staff member has acknowledged your alert and is on the way to your room.";
+          statusPill.textContent = "Staff Dispatched";
+          statusPill.classList.add("dispatched");
+        } else if (alert.status === "resolved") {
+          confirmTitle.textContent = "Resolved";
+          confirmMsg.textContent =
+            "This emergency has been marked resolved. We hope you're safe.";
+          statusPill.textContent = "Resolved";
+          statusPill.classList.add("resolved");
+        }
+      }
+
+      function resetForm() {
+        awaitingResponse = false;
+        confirmView.classList.remove("show");
+        formView.style.display = "";
+        sosBtn.disabled = !connected;
+      }
+
+      socket.on("guest:sos:received", (alert) => {
+        awaitingResponse = true;
+        showConfirmation(alert);
+      });
+
+      socket.on("guest:sos:update", (alert) => {
+        applyStatus(alert);
+      });
+
+      socket.on("guest:sos:error", (msg) => {
+        awaitingResponse = false;
+        sosBtn.disabled = !connected;
+        alert(msg || "Could not send alert. Please try again.");
       });
 
       sosBtn.addEventListener("click", () => {
@@ -292,10 +465,17 @@
           roomInput.style.borderColor = "var(--red)";
           return;
         }
-        try { localStorage.setItem("crisis:room", room); } catch (e) {}
-        socket.emit("guest:sos", room);
+        const type = typeSelect.value;
+        try {
+          localStorage.setItem("crisis:room", room);
+          localStorage.setItem("crisis:type", type);
+        } catch (e) {}
+        awaitingResponse = true;
         sosBtn.disabled = true;
+        socket.emit("guest:sos", { room, type });
       });
+
+      resetBtn.addEventListener("click", resetForm);
     </script>
   </body>
 </html>

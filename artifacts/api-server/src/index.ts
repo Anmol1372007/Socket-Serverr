@@ -56,6 +56,7 @@ interface AckMeta {
   resolvedAt?: number;
 }
 const ackMeta = new Map<number, AckMeta>();
+const guestSocketByAlert = new Map<number, string>();
 
 async function loadRecentAlerts(limit = 50): Promise<SosAlert[]> {
   const rows = await db
@@ -158,23 +159,35 @@ io.on("connection", (socket) => {
     logger.info({ socketId: socket.id, staffCount }, "Staff joined");
   });
 
-  socket.on("guest:sos", async (rawRoom: unknown) => {
+  socket.on("guest:sos", async (payload: unknown) => {
+    let rawRoom: unknown = payload;
+    let rawType: unknown = "SOS";
+    if (payload && typeof payload === "object") {
+      rawRoom = (payload as { room?: unknown }).room;
+      rawType = (payload as { type?: unknown }).type ?? "SOS";
+    }
     const room =
       typeof rawRoom === "string" && rawRoom.trim().length > 0
         ? rawRoom.trim().slice(0, 16).toUpperCase()
         : "UNKNOWN";
+    const allowedTypes = new Set(["Medical", "Fire", "Security", "SOS"]);
+    const emergencyType =
+      typeof rawType === "string" && allowedTypes.has(rawType)
+        ? rawType
+        : "SOS";
 
     try {
       const [row] = await db
         .insert(alertsTable)
         .values({
           roomNumber: room,
-          emergencyType: "SOS",
+          emergencyType,
           status: "active",
         })
         .returning();
       if (!row) throw new Error("Insert returned no row");
       const alert = rowToAlert(row);
+      guestSocketByAlert.set(row.id, socket.id);
 
       io.to("staff").emit("alert:new", alert);
       socket.emit("guest:sos:received", alert);
@@ -207,7 +220,10 @@ io.on("connection", (socket) => {
           acknowledgedBy: by,
           acknowledgedAt: Date.now(),
         });
-        io.to("staff").emit("alert:update", rowToAlert(row));
+        const updated = rowToAlert(row);
+        io.to("staff").emit("alert:update", updated);
+        const guestSid = guestSocketByAlert.get(idNum);
+        if (guestSid) io.to(guestSid).emit("guest:sos:update", updated);
       } catch (err) {
         logger.error({ err, idNum }, "Failed to acknowledge alert");
       }
@@ -231,7 +247,13 @@ io.on("connection", (socket) => {
           ...(ackMeta.get(idNum) ?? {}),
           resolvedAt: Date.now(),
         });
-        io.to("staff").emit("alert:update", rowToAlert(row));
+        const updated = rowToAlert(row);
+        io.to("staff").emit("alert:update", updated);
+        const guestSid = guestSocketByAlert.get(idNum);
+        if (guestSid) {
+          io.to(guestSid).emit("guest:sos:update", updated);
+          guestSocketByAlert.delete(idNum);
+        }
       } catch (err) {
         logger.error({ err, idNum }, "Failed to resolve alert");
       }
