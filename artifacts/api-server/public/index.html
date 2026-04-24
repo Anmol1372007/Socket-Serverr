@@ -465,7 +465,15 @@
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
-      const socket = io();
+      const socket = io({
+        transports: ["websocket"],
+        upgrade: false,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 500,
+        reconnectionDelayMax: 3000,
+        timeout: 20000,
+      });
       const sosBtn = document.getElementById("sos");
       const roomInput = document.getElementById("room");
       const typeSelect = document.getElementById("emergencyType");
