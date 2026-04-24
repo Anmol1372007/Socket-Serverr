@@ -193,11 +193,26 @@ io.on("connection", (socket) => {
       socket.emit("guest:sos:received", alert);
       logger.warn({ alert }, "EMERGENCY SOS triggered");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.error({ err, msg, room }, "Failed to persist SOS alert");
+      const e = err as {
+        message?: string;
+        code?: string;
+        detail?: string;
+        hint?: string;
+        cause?: { message?: string; code?: string; detail?: string };
+      };
+      const cause = e?.cause;
+      const detail =
+        cause?.detail || e?.detail || cause?.message || e?.message || String(err);
+      const code = cause?.code || e?.code;
+      logger.error(
+        { err, msg: e?.message, code, detail, cause, room, emergencyType },
+        "Failed to persist SOS alert",
+      );
       socket.emit(
         "guest:sos:error",
-        "Could not save your alert: " + msg,
+        "Could not save your alert. " +
+          (code ? "[" + code + "] " : "") +
+          detail,
       );
     }
   });
