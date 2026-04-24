@@ -420,8 +420,7 @@
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
       const socket = io({
-        transports: ["websocket"],
-        upgrade: false,
+        transports: ["websocket", "polling"],
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelay: 500,
